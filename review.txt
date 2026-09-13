@@ -1,0 +1,215 @@
+You are right. **In that example, the robot should normally turn right**, because the right side has more free space.
+
+I made an inconsistency in the previous explanation. Let me correct it.
+
+### 1. The sensor readings
+
+The example was:
+
+$$
+x=
+\begin{bmatrix}
+0.40\\
+0.125\\
+0.50
+\end{bmatrix}
+$$
+
+Which means:
+
+| Sensor | Distance |
+| ------ | -------: |
+| Left   |    80 cm |
+| Front  |    25 cm |
+| Right  |   100 cm |
+
+The robot is closer to an obstacle on the front-left side, while the right side is more open.
+
+### 2. The expected action
+
+For a simple obstacle-avoidance robot, the intuitive decision is:
+
+> **Turn right, because the right side has more available space.**
+
+For example:
+
+$$
+u_s=+0.70
+$$
+
+$$
+u_v=0.25
+$$
+
+Here, **positive steering means right**.
+
+The motor commands would be:
+
+$$
+v_L=v(1+u_s)
+$$
+
+$$
+v_R=v(1-u_s)
+$$
+
+So:
+
+$$
+v_L=0.25(1+0.70)=0.425
+$$
+
+$$
+v_R=0.25(1-0.70)=0.075
+$$
+
+Therefore:
+
+```text
+Left motor  = 42.5%
+Right motor = 7.5%
+```
+
+The robot turns **right**.
+
+### 3. Why did I previously say left?
+
+I used:
+
+$$
+u_s=-0.70
+$$
+
+and then interpreted it as “turn left.”
+
+That was inconsistent with the sensor readings. **The neural network output I gave was only an illustrative, arbitrary output—not a prediction from a trained model.** It should not have been presented as the correct decision for those inputs.
+
+### 4. Important point about a trained AI model
+
+A trained neural network does **not automatically know** that:
+
+> “More space on the right means turn right.”
+
+It learns that relationship from training data.
+
+For example, your training dataset should contain:
+
+```text
+Left = 80 cm
+Front = 25 cm
+Right = 100 cm
+Desired steering = +0.70
+Desired speed = 0.25
+```
+
+Then the model learns to produce a positive steering value for similar situations.
+
+### 5. A better rule for this specific robot
+
+For a simple obstacle-avoidance robot, you could first define the desired steering using:
+
+$$
+u_s = K(d_R-d_L)
+$$
+
+Where \(K\) is a proportional gain.
+
+For example, if:
+
+$$
+d_L=0.40,\quad d_R=0.50
+$$
+
+and:
+
+$$
+K=3
+$$
+
+then:
+
+$$
+u_s=3(0.50-0.40)=+0.30
+$$
+
+So the robot turns right.
+
+This is a **rule-based controller**, not the neural network itself. You can use it to generate training data for the neural network.
+
+**The key correction is:** In this example, the correct expected action is **right**, and the previous left-turn output was an illustrative mistake.
+************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************************
+
+why you got 1.1 which is over  1??
+You are right to question that. **The `1.10` in my example was an error.** I should not have presented it as a valid normalized sensor reading.
+
+The example was:
+
+$$
+[0.80,\;0.25,\;1.00]
+\rightarrow
+[-0.65,\;0.20]
+\rightarrow
+[0.60,\;0.35,\;1.10]
+$$
+
+I intended to show that the robot moved and its sensor readings changed, but I did not calculate those new readings from an actual robot movement.
+
+### What should happen?
+
+If we normalize distances using:
+
+$$
+d_{\text{normalized}}=\frac{d_{\text{measured}}}{200}
+$$
+
+then a normalized distance of **1.00 means 200 cm**.
+
+Therefore:
+
+$$
+1.10 \times 200 = 220\text{ cm}
+$$
+
+That is **outside the assumed 200 cm maximum**.
+
+So the corrected example should use a value **≤ 1.00**, for example:
+
+$$
+[0.80,\;0.25,\;1.00]
+\rightarrow
+[-0.65,\;0.20]
+\rightarrow
+[0.60,\;0.35,\;0.95]
+$$
+
+But even this is only an **illustrative example**, not a physically calculated result.
+
+### The important correction
+
+I should not invent the next sensor state. The actual next state must come from the environment:
+
+$$
+s_{t+1}=f_{\text{environment}}(s_t,a_t)
+$$
+
+For a real robot:
+
+1. The sensors measure the current distances.
+2. The AI produces an action.
+3. The motors move the robot.
+4. The sensors measure the **actual new distances**.
+
+So the correct interaction is:
+
+$$
+\boxed{
+\text{Actual sensor reading}
+\rightarrow
+\text{AI action}
+\rightarrow
+\text{Actual new sensor reading}
+}
+$$
+
+**Your criticism is correct: `1.10` was not justified by the example.**
+

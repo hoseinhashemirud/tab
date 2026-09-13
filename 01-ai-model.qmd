@@ -1,0 +1,413 @@
+---
+title: "A small MLP neural network for autonomous obstacle avoidance"
+---
+
+## AI Model
+
+A realistic example of an AI agent running directly on a microcontroller will be given here.
+
+Application: A two-wheel autonomous robot that moves through a room and avoids obstacles.
+
+**Model**: A small fully connected neural network (MLP) that receives distance measurements and predicts the safest movement direction.
+
+A practical starting architecture could be:
+
+$$\boxed{3\rightarrow 16 \rightarrow 8 \rightarrow 2}$$
+
+- 3 inputs: Left, front, and right distances measurements
+- 16 neurons: First hidden layer
+- 8 neurons: Second hidden layer
+- 2 outputs: Steering and speed
+
+The model would be trained on a computer and deployed to the STM32 using X-CUBE-AI.
+In this model, a small fully connected neural network (MLP) that receives distance measurements and predicts the safest movement direction is applied. 
+ST provides tools for optimizing neural networks and generating C code for STM32 devices.
+
+<!--![The MLP Neural Network of the AI-model](../images/picture2.jpg){#fig-NNMLP fig-alt="MLP NN"}!-->
+
+## The Concrete robot definition ##
+To provide the dataset the concrete definition  of the robot should be determined. It is a custome robot with the properties given in @tbl-Parameters.
+
+| Parameter                |                                                      Value |
+| ------------------------ | ---------------------------------------------------------: |
+| Drive type               |                                         Differential drive |
+| Wheel separation \(L\)   |                                                     0.16 m |
+| Wheel radius \(r\)       |                                                    0.032 m |
+| Maximum wheel speed      |                                                   0.60 m/s |
+| Maximum robot speed      |                                                   0.40 m/s |
+| Maximum angular velocity |                                                  2.5 rad/s |
+| Sensor range             |                                                0.05–2.00 m |
+| Sensors                  |                                                3 × VL53L0X |
+| Sensor directions        | Left \($−45^\circ$\), Front \($0^\circ$\), Right \($+45^\circ$\) |
+: The parameters of a custom robot {#tbl-Parameters}
+
+The three sensors measure $d_L​,d_F​,d_R$.
+It is recommended that the neural network learn two physical control variables:​
+$[d_L​,d_F​,d_R]\rightarrow [v_d,\omega_d]$
+Where<br> 
+$v_d$: desired linear velocity [m/s].<br>
+$\omega_d$: desired angular velocity [rad/s].<br>
+
+This is a better selection because the $v_d,\omega_d$ has a direct physical meaning.
+At first, a reference controller is created. This controller is not an AI. It is used to generate physically meaningful training data, For example, define:
+$$
+v_d =
+\begin{cases}
+0, & d_F \leq 0.2 \\
+0.4.\frac{d_F-0.2}{0.8-0.2}, & 0.2<x < 0.8 \\
+0.4, & d_F > 0.8
+\end{cases}
+$$
+
+Thus:<br>
+obstacle very close → stop<br>
+obstacle moderately close → slow down<br>
+obstacle far away → move at up to 0.40 m/s<br>
+
+**Desired turning rate**<br>
+We can define the desired angular velocity from the difference between left and right distances: 
+$e_d​=d_L​−d_R$
+and 
+$$
+\omega_d=K_{\omega_d}.\frac{d_L​−d_R}{d_L​+d_R}
+$$
+with saturation like:
+$$ -2.5\leq\omega_d\leq2.5 $$
+
+Here is defined:<br>
+<center> $\omega>0 \Rightarrow \text{turn left}$<br>
+$\omega<0 \Rightarrow \text{turn right}$ </center>
+Therefore, if: $$ d_R>d_L $$ then: $$ d_L-d_R<0 $$<br>
+and therefore:<br>
+$$ \omega_d<0 $$
+So the robot turns right, toward the wider space. This fixes the inconsistency we had earlier, since physical definition get improved.
+
+**Convert the desired motion into actual wheel velocities**
+
+This is where the robot physics enters to the problem.
+
+For a differential-drive robot:
+$$ v=\frac{v_R+v_L}{2} $$ and: $$ \omega=\frac{v_R-v_L}{L} $$
+Therefore:<br>
+<center>$\boxed{ v_L=v_d-\frac{L}{2}\omega_d }$
+$\boxed{ v_R=v_d+\frac{L}{2}\omega_d }$ </center><br>
+With $L=0.16\,m$, we get:<br>
+$$v_L=v_d-0.08\omega_d $$ $$ v_R=v_d+0.08\omega_d$$
+
+Then we impose the motor limits:<br>
+$$ -0.60\leq v_L,v_R\leq0.60 $$
+
+This is a physically meaningful training target.
+
+Besides, it is also needed to consider the front obstacle.
+
+Suppose:
+
+$$ d_L=1.2\,m $$ $$ d_F=0.25\,m $$ $$ d_R=0.4\,m $$
+
+The front obstacle is very close.
+
+Simply using $(d_L-d_R)$ isn't enough, because the robot needs to make a stronger avoidance maneuver. Therefore, a better reference controller is:
+
+$$ \omega_d = K_1\frac{d_L-d_R}{d_L+d_R} + K_2\left(\frac{1}{d_F}-\frac{1}{d_F^{ref}}\right) \operatorname{sign}(d_L-d_R) $$
+
+with appropriate saturation.
+
+This makes the turning response stronger when the front obstacle becomes close.
+
+For a first implementation, however,the controller is kept simpler and validated experimentally before adding complexity.
+
+**A correct training sample**<br>
+Suppose the sensors measure:
+$$ d_L=0.80\,m $$ $$ d_F=1.20\,m $$ $$ d_R=1.20\,m $$
+Since the front is clear:
+$$ v_d=0.40\,m/s $$
+
+and:
+
+$$ d_L-d_R=0 $$
+
+therefore:
+
+$$ \omega_d=0 $$
+
+So:
+
+$$ v_L=v_R=0.40\,m/s $$
+
+The robot goes straight.<br>
+
+**The training dataset**<br>
+These data should be gathered in a csv file:<br>
+[d_left_m, d_front_m, d_right_m, v_desired_mps, omega_desired_radps]
+<br>
+However, the numbers in csv file should not be treated as the final dataset yet. A proper dataset should be generated automatically from the reference controller over thousands of physically possible sensor states.
+
+![MLP Neural Network for the AI model](../imagescopy/picture2.jpg){
+  #fig-NNMLP
+  fig-cap="The MLP Neural Network of the AI-model"
+  fig-alt="MLP neural network diagram"
+}
+
+The project would be now defined as:
+
+$$ \boxed{ \text{VL53L0X} \rightarrow \text{MLP} \rightarrow (v_d,\omega_d) \rightarrow (v_L,v_R) \rightarrow \text{PWM} \rightarrow \text{motors} } $$
+
+with:
+
+$$ \boxed{ \text{MLP}:3\rightarrow32\rightarrow16\rightarrow2 } $$
+
+and:
+
+$$ \boxed{ \text{Input}=[d_L,d_F,d_R]\quad[m] } $$ $$ \boxed{ \text{Output}=[v_d,\omega_d]\quad[m/s,\ rad/s] } $$
+
+Then:
+
+$$ \boxed{ v_L=v_d-\frac{L}{2}\omega_d } $$ $$ \boxed{ v_R=v_d+\frac{L}{2}\omega_d } $$
+
+This is substantially more physically defensible than the original normalized steering/speed example.<br>
+
+**Updated project workflow**<br>
+
+1. Define the robot<br>
+- STM32
+- Differential-drive, two DC motors
+- Wheel radius, wheel separation, maximum wheel speed
+2. Select sensors<br>
+- $d_L,d_F,d_R$ from the three VL53L0X ToF sensors
+3. Implement sensor acquisition<br>
+- STM32 I²C
+- Distance values in meters
+4. Implement motor control<br>
+- PWM
+- Differential-drive equations
+
+5. Define the physical robot model<br>
+
+- $$ v=\frac{v_R+v_L}{2} $$ $$ \omega=\frac{v_R-v_L}{L} $$
+6. Develop the reference obstacle-avoidance controller
+- Produces physically valid \(v_d,\omega_d\)
+
+7. Generate the training dataset
+
+- $$ [d_L,d_F,d_R]\rightarrow[v_d,\omega_d] $$
+- Floating-point data
+- Physically possible sensor states
+- Labels generated by the reference controller
+
+8. Train the MLP neural network
+
+- $$ 3\rightarrow32\rightarrow16\rightarrow2 $$ 
+- FP32 training
+9. Validate the FP32 MLP
+- Prediction error
+- Obstacle-avoidance behavior
+- Check against physical constraints
+10. Quantize the trained MLP ← THIS IS WHERE QUANTIZATION GOES
+11. Validate the quantized MLP
+- Compare FP32 vs INT8 outputs
+- Check whether quantization changes robot behavior significantly
+12. Deploy the quantized MLP to STM32
+- STM32Cube.AI / STM32Cube AI Studio
+- Generate optimized C code
+13. Integrate MLP with FreeRTOS
+- Sensor task
+- AI inference task
+- Motor-control task
+- Safety task
+14. Run the real robot
+15. Measure real-time performance
+- Inference time
+- CPU utilization
+- RAM/Flash
+- Task execution time
+- Deadline misses
+- End-to-end latency
+16. Evaluate navigation performance
+- Collision rate
+- Completion rate
+- Path efficiency
+- Average velocity
+- Energy consumption
+
+
+## Overall architecture ##
+For the custom robot, the MLP should be integrated with FreeRTOS as a pipeline of periodic tasks, with the Safety task having the highest priority.
+The key idea is that the MLP should not directly control the motors. It produces a desired command, and the safety and motor-control layers decide whether and how that command is actually applied.
+The Figure 4 illustrate this integration.
+
+![The overal archtecture of the integration of FreeRTOS with MLP](../imagescopy/picture4.jpg){#fig-integration fig-alt="Integration of RTOS and MLP"}
+
+**SensorTask**
+
+The SensorTask periodically reads the three VL53L0X sensors.
+For example:
+$$ T_S=20\,ms $$
+which corresponds to:
+$$ f_S=50\,Hz. $$
+
+It reads $d_L, d_F, d_R$ and stores them in a shared sensor structure.
+
+**AI inference task**
+
+The AITask reads the latest sensor vector:
+
+$$ X= \begin{bmatrix} d_L\\ d_F\\ d_R \end{bmatrix} $$
+
+and feeds it to:
+
+$$ \boxed{3\rightarrow8\rightarrow16\rightarrow2} $$
+
+The MLP generates:
+
+<center>$Y=[v_d, \omega_d]$</center>
+
+Then constrain the output:
+
+$$ 0\leq v_d\leq0.40\,m/s \ and -2.5\leq\omega_d\leq2.5\,rad/s $$
+
+For our previously defined custom robot, the AITask could initially run every $T_{AI}=20\,ms$, but 20 ms is a starting design value, not a measured requirement.
+The neural network should never have unrestricted authority over the motors.
+
+**The SafetyTask**<br>
+The saftey task independently checks the sensor data. For example:
+$d_F < 0.10\,m$ means: 
+$$ \boxed{v_d=0,\quad\omega_d=0} $$
+
+regardless of what the MLP says. We could have several safety levels:
+
+Emergency<center> $d_F < 0.10m$ → immediate stop.</center><br>
+Danger <center>$0.10\leq d_F<0.20m$ → force: $v_d=0.$<br></center>
+Normal <center>$d_F≥0.20m$ → allow the AI command, subject to limits.</center>
+
+
+**MotorTask**
+
+The MotorTask converts $v_d,\omega_d$ into left/right wheel velocities.
+
+For our differential-drive robot:
+$$ v_L=v_d-\frac{L}{2}\omega_d $$ $$ v_R=v_d+\frac{L}{2}\omega_d. $$
+
+With $L=0.16\ m$ we have:
+$$ \boxed{v_L=v_d-0.08\omega_d} $$ $$ \boxed{v_R=v_d+0.08\omega_d}. $$
+
+Then convert wheel velocity to motor commands/PWM. In a better implementation, the motor task would use wheel encoders and closed-loop velocity control, rather than mapping velocity directly to PWM.<br>
+
+**FreeRTOS priorities**
+
+Priorities would be initially assigned like @tbl-Tasks.
+
+| Task       | Period | Priority | Function                     |
+| ---------- | -----: | -------: | ---------------------------- |
+| SafetyTask |   5 ms |    **4** | Emergency/safety supervision |
+| MotorTask  |   5 ms |    **3** | Wheel control/PWM            |
+| SensorTask |  20 ms |    **2** | Read ToF sensors             |
+| AITask     |  20 ms |    **2** | MLP inference                |
+: The tasks schedule {#tbl-Tasks}
+
+
+The exact priorities should eventually be determined from the measured execution times and timing requirements, rather than assumed.
+
+The important hierarchy is:
+
+$$ \boxed{ Safety > Motor > AI/Sensor } $$
+
+because an AI inference task should never prevent an emergency stop.
+
+
+## Agent
+
+The agent is the complete autonomous robot,the RTOS coordinates these tasks, while the AI model helps determine the robot's action.
+
+::: {.text-center}
+**Agent**
+
+STM32 + RTOS + Sensors + AI + Motor Control
+
+sensor task $\rightarrow$ AI inference task $\rightarrow$ decision task $\rightarrow$ motor control
+:::
+
+### The complete interaction loop
+
+<!--![The complete interaction loop](../images/picture3.jpg){
+  #fig-loop
+  fig-cap="The complete interaction loop"
+  fig-alt="Interaction loop"
+}!-->
+
+<!--![The complete interaction loop](../images/picture3.jpg){#fig-loop fig-alt="Interaction loop"}!-->
+
+Mathematically:
+
+- AI Model: $s_t \rightarrow a_t$
+- Environment: $(s_t, a_t) \rightarrow s_{t+1}$
+
+Where:
+
+- $(s_t)$: current sensor state
+- $(a_t)$: Robot action
+- $(s_{t+1})$: New sensor state
+
+For example:
+
+$$[0.80,\ 0.25,\ 1.00] \rightarrow [-0.65,\ 0.20] \rightarrow [0.60,\ 0.35,\ 0.95]$$
+
+The robot has turned left, so the next sensor measurements are different.
+![The complete interaction loop](../imagescopy/picture3.jpg){
+  #fig-loop
+  fig-cap="The complete interaction loop"
+  fig-alt="Interaction loop"
+}
+
+The RTOS coordinates these tasks, while the AI model helps determine the robot's action.
+
+
+Suppose the robot has three distance sensors:
+
+::: {.text-center}
+left = 80 cm, front = 25 cm, right = 100 cm, with quantization of 200: $distance=initial\ distance/200$:
+:::
+$$x=[0.4,\ 0.125,\ 0.5]^T$$
+
+Hence,the values are normalized before being given to the neural network.
+The model might produce:
+
+$$y=[+0.7,\ 0.25]^T$$
+
+Where:
+
+- Steering = +0.65: Turn right
+- Speed = 0.25: Move slowly (25% of maximum speed)
+
+The robot then converts these outputs into motor commands.
+The model does not directly control the motors. It produces a decision that the control software interprets.<br>
+
+## Environment
+
+The neural network is the decision-making model; the agent is the complete robot system that uses the model.
+
+The environment is the physical world surrounding the robot. In this specific AI model, the components are:
+
+- Walls
+- Tables
+- Chairs
+- People
+- Other obstacles
+- Floor surface
+- Battery and motor conditions
+
+The environment changes when the robot moves.
+
+![A two-wheel autonomous robot](../imagescopy/picture1.jpg){#fig-robot fig-alt="Two-wheel robot"}
+
+
+---
+title: "The agent: from sensors to motor commands"
+---
+
+For example, The robot moves forward → approaches a wall → the distance sensor measures a smaller distance → the robot must change its action.
+
+
+
+
+
